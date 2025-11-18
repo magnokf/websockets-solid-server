@@ -464,7 +464,7 @@
             </div>
 
             <div class="join-room-form">
-                <input type="text" id="roomNameInput" placeholder="Nome da sala">
+                <label for="roomNameInput"></label><input type="text" id="roomNameInput" placeholder="Nome da sala">
                 <button onclick="joinRoom()">Entrar na Sala</button>
             </div>
         </div>
@@ -487,9 +487,9 @@
                 <div class="typing-indicator" id="typingIndicator"></div>
 
                 <div class="message-input-wrapper">
-                    <input type="text" id="messageInput" placeholder="Digite sua mensagem..."
-                           oninput="handleTyping()" onkeypress="handleKeyPress(event)"
-                           style="flex: 1; padding: 12px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 14px;">
+                    <label for="messageInput"></label><input type="text" id="messageInput" placeholder="Digite sua mensagem..."
+                                                             oninput="handleTyping()" onkeypress="handleKeyPress(event)"
+                                                             style="flex: 1; padding: 12px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 14px;">
                     <button onclick="sendMessage()" style="padding: 12px 24px; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">Enviar</button>
                 </div>
             </div>
@@ -921,9 +921,7 @@
 
     function showReactionTooltip(event, users) {
         const tooltip = document.getElementById('reactionTooltip');
-        const names = users.map(u => u.username).join(', ');
-
-        tooltip.textContent = names;
+        tooltip.textContent = users.map(u => u.username).join(', ');
         tooltip.style.display = 'block';
 
         const rect = event.target.getBoundingClientRect();
