@@ -442,7 +442,7 @@
 <div class="container">
     <!-- LOGIN SCREEN -->
     <div class="login-screen" id="loginScreen">
-        <h1>💬 Chat com Reações</h1>
+        <h1>💬 Sala de conversação com Reações</h1>
         <input type="text" id="usernameInput" placeholder="Digite seu nome de usuário" maxlength="50">
         <button onclick="connect()">Conectar</button>
     </div>
@@ -457,7 +457,7 @@
             </div>
 
             <div class="rooms-section" id="roomsList">
-                <h4>Minhas Salas</h4>
+                <h4>As minhas Salas</h4>
                 <div class="empty-state" id="noRoomsMessage">
                     <p>Você ainda não entrou em nenhuma sala</p>
                 </div>
@@ -473,7 +473,7 @@
         <div class="chat-area">
             <div class="empty-state" id="selectRoomMessage" style="flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column;">
                 <h3>Selecione ou crie uma sala</h3>
-                <p>Entre em uma sala para começar a conversar</p>
+                <p>Entre numa sala para começar a conversar</p>
             </div>
 
             <div id="activeChat" style="display: none; flex: 1; flex-direction: column;">
@@ -515,7 +515,7 @@
 
 <div class="reaction-tooltip" id="reactionTooltip"></div>
 
-<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
 <script>
     let socket = null;
     let currentUsername = '';
@@ -523,8 +523,8 @@
     let currentRoom = null;
     let joinedRooms = new Map();
     let currentPickerMessageId = null;
-    let messageReactions = new Map(); // messageId -> reactions
-    let typingUsers = new Set(); // usuários que estão digitando
+    let messageReactions = new Map();
+    let typingUsers = new Set();
     let typingTimeout = null;
 
     function connect() {
@@ -755,7 +755,6 @@
     function handleTyping() {
         if (!currentRoom) return;
 
-        // Enviar que está digitando
         socket.emit('room:typing', {
             roomId: currentRoom,
             isTyping: true
