@@ -9,7 +9,14 @@ import { z } from 'zod';
 const ChatMessageSchema = z.object({
     message: z.string().min(1).max(500),
     roomId: z.string().min(1),
+    messageId: z.string().min(1), // ID único da mensagem
     timestamp: z.string().datetime().optional()
+});
+
+const MessageReactionSchema = z.object({
+    messageId: z.string().min(1),
+    roomId: z.string().min(1),
+    emoji: z.enum(['👍', '❤️', '😂', '😮', '😢', '🔥']) // Emojis permitidos
 });
 
 const JoinRoomSchema = z.object({
@@ -27,6 +34,7 @@ const PingSchema = z.object({
 
 // Tipos TypeScript
 type ChatMessage = z.infer<typeof ChatMessageSchema>;
+type MessageReaction = z.infer<typeof MessageReactionSchema>;
 type JoinRoom = z.infer<typeof JoinRoomSchema>;
 type LeaveRoom = z.infer<typeof LeaveRoomSchema>;
 type PingMessage = z.infer<typeof PingSchema>;
@@ -46,6 +54,13 @@ interface Room {
     id: string;
     users: Map<string, RoomUser>;
     createdAt: Date;
+}
+
+interface Reaction {
+    userId: string;
+    username: string;
+    emoji: string;
+    timestamp: Date;
 }
 
 class ValidationError extends Error {
@@ -84,6 +99,14 @@ interface IRoomManager {
     getUserRooms(socketId: string): string[];
     roomExists(roomId: string): boolean;
     isUserInRoom(roomId: string, socketId: string): boolean;
+}
+
+// Nova interface para gerenciar reações
+interface IReactionManager {
+    addReaction(messageId: string, reaction: Reaction): void;
+    removeReaction(messageId: string, userId: string, emoji: string): void;
+    getReactions(messageId: string): Map<string, Reaction[]>;
+    hasUserReacted(messageId: string, userId: string, emoji: string): boolean;
 }
 
 interface IMessageHandler {
@@ -148,7 +171,6 @@ class ConnectionManager implements IConnectionManager {
     }
 }
 
-// Gerenciador de Salas (SRP - Single Responsibility)
 class RoomManager implements IRoomManager {
     private rooms: Map<string, Room> = new Map();
     private socketToRooms: Map<string, Set<string>> = new Map();
@@ -167,7 +189,6 @@ class RoomManager implements IRoomManager {
     }
 
     joinRoom(roomId: string, user: RoomUser): void {
-        // Criar sala se não existir
         if (!this.rooms.has(roomId)) {
             this.createRoom(roomId);
         }
@@ -175,7 +196,6 @@ class RoomManager implements IRoomManager {
         const room = this.rooms.get(roomId)!;
         room.users.set(user.socketId, user);
 
-        // Mapear socket -> rooms
         if (!this.socketToRooms.has(user.socketId)) {
             this.socketToRooms.set(user.socketId, new Set());
         }
@@ -194,7 +214,6 @@ class RoomManager implements IRoomManager {
             room.users.delete(socketId);
             this.logger.info('User left room', { roomId, socketId });
 
-            // Remover sala se vazia
             if (room.users.size === 0) {
                 this.rooms.delete(roomId);
                 this.logger.info('Room deleted (empty)', { roomId });
@@ -229,6 +248,78 @@ class RoomManager implements IRoomManager {
 
     isUserInRoom(roomId: string, socketId: string): boolean {
         return this.rooms.get(roomId)?.users.has(socketId) || false;
+    }
+}
+
+// NOVA CLASSE: Gerenciador de Reações (SRP)
+class ReactionManager implements IReactionManager {
+    // messageId -> emoji -> [Reaction]
+    private reactions: Map<string, Map<string, Reaction[]>> = new Map();
+
+    constructor(private logger: ILogger) {}
+
+    addReaction(messageId: string, reaction: Reaction): void {
+        if (!this.reactions.has(messageId)) {
+            this.reactions.set(messageId, new Map());
+        }
+
+        const messageReactions = this.reactions.get(messageId)!;
+
+        if (!messageReactions.has(reaction.emoji)) {
+            messageReactions.set(reaction.emoji, []);
+        }
+
+        const emojiReactions = messageReactions.get(reaction.emoji)!;
+
+        // Verificar se usuário já reagiu com esse emoji
+        const existingIndex = emojiReactions.findIndex(r => r.userId === reaction.userId);
+
+        if (existingIndex === -1) {
+            emojiReactions.push(reaction);
+            this.logger.info('Reaction added', {
+                messageId,
+                userId: reaction.userId,
+                emoji: reaction.emoji
+            });
+        }
+    }
+
+    removeReaction(messageId: string, userId: string, emoji: string): void {
+        const messageReactions = this.reactions.get(messageId);
+        if (!messageReactions) return;
+
+        const emojiReactions = messageReactions.get(emoji);
+        if (!emojiReactions) return;
+
+        const index = emojiReactions.findIndex(r => r.userId === userId);
+        if (index !== -1) {
+            emojiReactions.splice(index, 1);
+            this.logger.info('Reaction removed', { messageId, userId, emoji });
+
+            // Limpar se não houver mais reações desse tipo
+            if (emojiReactions.length === 0) {
+                messageReactions.delete(emoji);
+            }
+
+            // Limpar se não houver mais reações na mensagem
+            if (messageReactions.size === 0) {
+                this.reactions.delete(messageId);
+            }
+        }
+    }
+
+    getReactions(messageId: string): Map<string, Reaction[]> {
+        return this.reactions.get(messageId) || new Map();
+    }
+
+    hasUserReacted(messageId: string, userId: string, emoji: string): boolean {
+        const messageReactions = this.reactions.get(messageId);
+        if (!messageReactions) return false;
+
+        const emojiReactions = messageReactions.get(emoji);
+        if (!emojiReactions) return false;
+
+        return emojiReactions.some(r => r.userId === userId);
     }
 }
 
@@ -268,7 +359,6 @@ abstract class BaseMessageHandler implements IMessageHandler {
     ): Promise<void>;
 }
 
-// Handler: Entrar em Sala
 class JoinRoomHandler extends BaseMessageHandler {
     constructor(
         logger: ILogger,
@@ -285,14 +375,13 @@ class JoinRoomHandler extends BaseMessageHandler {
     ): Promise<void> {
         const user: RoomUser = {
             socketId,
-            userId: socketId, // Pode ser trocado por JWT userId
+            userId: socketId,
             username: data.username,
             joinedAt: new Date()
         };
 
         this.roomManager.joinRoom(data.roomId, user);
 
-        // Notificar todos da sala
         const users = this.roomManager.getRoomUsers(data.roomId);
         this.server.broadcastToRoom(data.roomId, 'room:user_joined', {
             roomId: data.roomId,
@@ -308,7 +397,6 @@ class JoinRoomHandler extends BaseMessageHandler {
     }
 }
 
-// Handler: Sair de Sala
 class LeaveRoomHandler extends BaseMessageHandler {
     constructor(
         logger: ILogger,
@@ -328,7 +416,6 @@ class LeaveRoomHandler extends BaseMessageHandler {
 
         this.roomManager.leaveRoom(data.roomId, socketId);
 
-        // Notificar sala
         if (leavingUser) {
             this.server.broadcastToRoom(data.roomId, 'room:user_left', {
                 roomId: data.roomId,
@@ -345,7 +432,6 @@ class LeaveRoomHandler extends BaseMessageHandler {
     }
 }
 
-// Handler: Mensagem de Chat
 class ChatMessageHandler extends BaseMessageHandler {
     constructor(
         logger: ILogger,
@@ -360,7 +446,6 @@ class ChatMessageHandler extends BaseMessageHandler {
         eventName: string,
         data: ChatMessage
     ): Promise<void> {
-        // Verificar se usuário está na sala
         if (!this.roomManager.isUserInRoom(data.roomId, socketId)) {
             throw new Error('User not in room');
         }
@@ -374,24 +459,95 @@ class ChatMessageHandler extends BaseMessageHandler {
 
         this.logger.info('Chat message in room', {
             roomId: data.roomId,
+            messageId: data.messageId,
             username: sender.username,
             message: data.message
         });
 
-        // Broadcast para toda a sala
         this.server.broadcastToRoom(data.roomId, 'chat:message', {
+            messageId: data.messageId,
             roomId: data.roomId,
             sender: {
                 userId: sender.userId,
                 username: sender.username
             },
             message: data.message,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            reactions: {} // Inicialmente sem reações
         });
     }
 }
 
-// Handler: Ping
+// NOVO HANDLER: Reações (OCP - adicionar sem modificar código existente!)
+class MessageReactionHandler extends BaseMessageHandler {
+    constructor(
+        logger: ILogger,
+        private roomManager: IRoomManager,
+        private reactionManager: IReactionManager,
+        private server: IWebSocketServer
+    ) {
+        super(logger, MessageReactionSchema);
+    }
+
+    protected async execute(
+        socketId: string,
+        eventName: string,
+        data: MessageReaction
+    ): Promise<void> {
+        // Verificar se usuário está na sala
+        if (!this.roomManager.isUserInRoom(data.roomId, socketId)) {
+            throw new Error('User not in room');
+        }
+
+        const users = this.roomManager.getRoomUsers(data.roomId);
+        const user = users.find(u => u.socketId === socketId);
+
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        // Verificar se já reagiu com esse emoji
+        const hasReacted = this.reactionManager.hasUserReacted(
+            data.messageId,
+            user.userId,
+            data.emoji
+        );
+
+        if (hasReacted) {
+            // Remover reação (toggle)
+            this.reactionManager.removeReaction(data.messageId, user.userId, data.emoji);
+        } else {
+            // Adicionar reação
+            const reaction: Reaction = {
+                userId: user.userId,
+                username: user.username,
+                emoji: data.emoji,
+                timestamp: new Date()
+            };
+            this.reactionManager.addReaction(data.messageId, reaction);
+        }
+
+        // Buscar todas as reações da mensagem
+        const messageReactions = this.reactionManager.getReactions(data.messageId);
+
+        // Transformar em formato para enviar ao cliente
+        const reactionsFormatted: Record<string, Array<{ userId: string; username: string }>> = {};
+        messageReactions.forEach((reactions, emoji) => {
+            reactionsFormatted[emoji] = reactions.map(r => ({
+                userId: r.userId,
+                username: r.username
+            }));
+        });
+
+        // Broadcast para toda a sala
+        this.server.broadcastToRoom(data.roomId, 'message:reaction_updated', {
+            messageId: data.messageId,
+            roomId: data.roomId,
+            reactions: reactionsFormatted
+        });
+    }
+}
+
 class PingMessageHandler extends BaseMessageHandler {
     constructor(logger: ILogger) {
         super(logger, PingSchema);
@@ -510,7 +666,6 @@ class WebSocketServer implements IWebSocketServer {
         });
 
         socket.on('disconnect', () => {
-            // Sair de todas as salas
             const rooms = this.roomManager.getUserRooms(socket.id);
             rooms.forEach(roomId => {
                 const users = this.roomManager.getRoomUsers(roomId);
@@ -568,9 +723,9 @@ class Application {
         const logger = new ConsoleLogger();
         const connectionManager = new ConnectionManager();
         const roomManager = new RoomManager(logger);
+        const reactionManager = new ReactionManager(logger); // NOVA dependência
         const messageRouter = new MessageRouter(logger);
 
-        // Criar server (precisa injetar antes de registrar handlers)
         const server = new WebSocketServer(
             connectionManager,
             roomManager,
@@ -582,6 +737,7 @@ class Application {
         messageRouter.registerHandler('join:room', new JoinRoomHandler(logger, roomManager, server));
         messageRouter.registerHandler('leave:room', new LeaveRoomHandler(logger, roomManager, server));
         messageRouter.registerHandler('chat:message', new ChatMessageHandler(logger, roomManager, server));
+        messageRouter.registerHandler('message:reaction', new MessageReactionHandler(logger, roomManager, reactionManager, server)); // NOVO handler
         messageRouter.registerHandler('ping', new PingMessageHandler(logger));
 
         this.server = server;
