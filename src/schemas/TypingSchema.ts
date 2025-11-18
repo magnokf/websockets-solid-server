@@ -17,8 +17,7 @@ export const TypingSchema = z.object({
      * false = parou de digitar
      */
     isTyping: z.boolean({
-        required_error: 'isTyping is required',
-        invalid_type_error: 'isTyping must be a boolean'
+        message: 'isTyping must be a boolean'
     })
 });
 

@@ -5,6 +5,8 @@ import { z } from 'zod';
  *
  * Valida que a reação usa apenas emojis permitidos
  */
+const reactionEmojis = ['👍', '❤️', '😂', '😮', '😢', '🔥'] as const;
+
 export const MessageReactionSchema = z.object({
     /**
      * ID da mensagem a reagir
@@ -19,8 +21,8 @@ export const MessageReactionSchema = z.object({
     /**
      * Emoji da reação (apenas os permitidos)
      */
-    emoji: z.enum(['👍', '❤️', '😂', '😮', '😢', '🔥'], {
-        errorMap: () => ({ message: 'Invalid emoji. Use: 👍, ❤️, 😂, 😮, 😢, 🔥' })
+    emoji: z.enum(reactionEmojis, {
+        message: 'Invalid emoji. Use: 👍, ❤️, 😂, 😮, 😢, 🔥'
     })
 });
 
@@ -28,3 +30,4 @@ export const MessageReactionSchema = z.object({
  * Tipo TypeScript inferido do schema
  */
 export type MessageReaction = z.infer<typeof MessageReactionSchema>;
+export type ReactionEmoji = (typeof reactionEmojis)[number];

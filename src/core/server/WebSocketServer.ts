@@ -5,6 +5,7 @@ import { IConnectionManager } from '../../interfaces/IConnectionManager';
 import { IRoomManager } from '../../interfaces/IRoomManager';
 import { ILogger } from '../../interfaces/ILogger';
 import { ValidationError } from '../../errors/ValidationError';
+import { IMessageRouter } from '../../interfaces/IMessageRouter';
 
 /**
  * Servidor WebSocket usando Socket.IO
@@ -18,7 +19,7 @@ export class WebSocketServer implements IWebSocketServer {
     constructor(
         private connectionManager: IConnectionManager,
         private roomManager: IRoomManager,
-        private messageRouter: any, // TODO: Criar interface IMessageRouter
+        private messageRouter: IMessageRouter,
         private logger: ILogger
     ) {}
 
