@@ -10,7 +10,7 @@ const ChatMessageSchema = z.object({
     message: z.string().min(1).max(500),
     roomId: z.string().min(1),
     messageId: z.string().min(1), // ID único da mensagem
-    timestamp: z.string().datetime().optional()
+    timestamp: z.iso.datetime().optional()
 });
 
 const MessageReactionSchema = z.object({
@@ -29,7 +29,7 @@ const LeaveRoomSchema = z.object({
 });
 
 const PingSchema = z.object({
-    timestamp: z.string().datetime()
+    timestamp: z.iso.datetime()
 });
 
 // Tipos TypeScript
@@ -328,7 +328,7 @@ class ReactionManager implements IReactionManager {
 // ============================================
 
 abstract class BaseMessageHandler implements IMessageHandler {
-    constructor(
+    protected constructor(
         protected logger: ILogger,
         protected schema?: z.ZodSchema
     ) {}
@@ -370,7 +370,7 @@ class JoinRoomHandler extends BaseMessageHandler {
 
     protected async execute(
         socketId: string,
-        eventName: string,
+        _eventName: string,
         data: JoinRoom
     ): Promise<void> {
         const user: RoomUser = {
@@ -408,7 +408,7 @@ class LeaveRoomHandler extends BaseMessageHandler {
 
     protected async execute(
         socketId: string,
-        eventName: string,
+        _eventName: string,
         data: LeaveRoom
     ): Promise<void> {
         const users = this.roomManager.getRoomUsers(data.roomId);
@@ -443,7 +443,7 @@ class ChatMessageHandler extends BaseMessageHandler {
 
     protected async execute(
         socketId: string,
-        eventName: string,
+        _eventName: string,
         data: ChatMessage
     ): Promise<void> {
         if (!this.roomManager.isUserInRoom(data.roomId, socketId)) {
@@ -491,7 +491,7 @@ class MessageReactionHandler extends BaseMessageHandler {
 
     protected async execute(
         socketId: string,
-        eventName: string,
+        _eventName: string,
         data: MessageReaction
     ): Promise<void> {
         // Verificar se usuário está na sala
@@ -555,7 +555,7 @@ class PingMessageHandler extends BaseMessageHandler {
 
     protected async execute(
         socketId: string,
-        eventName: string,
+        _eventName: string,
         data: PingMessage
     ): Promise<void> {
         this.logger.info('Ping received', { socketId, timestamp: data.timestamp });
