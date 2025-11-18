@@ -342,8 +342,22 @@
             padding: 20px;
             background: white;
             border-top: 1px solid #e0e0e0;
+        }
+
+        .typing-indicator {
+            padding: 10px 20px;
+            background: #f8f9fa;
+            border-top: 1px solid #e0e0e0;
+            font-size: 13px;
+            color: #666;
+            font-style: italic;
+            min-height: 20px;
+        }
+
+        .message-input-wrapper {
             display: flex;
             gap: 10px;
+            padding: 0 20px 20px 20px;
         }
 
         .message-input input {
@@ -470,9 +484,13 @@
 
                 <div class="messages" id="messages"></div>
 
-                <div class="message-input">
-                    <input type="text" id="messageInput" placeholder="Digite sua mensagem..." onkeypress="handleKeyPress(event)">
-                    <button onclick="sendMessage()">Enviar</button>
+                <div class="typing-indicator" id="typingIndicator"></div>
+
+                <div class="message-input-wrapper">
+                    <input type="text" id="messageInput" placeholder="Digite sua mensagem..."
+                           oninput="handleTyping()" onkeypress="handleKeyPress(event)"
+                           style="flex: 1; padding: 12px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 14px;">
+                    <button onclick="sendMessage()" style="padding: 12px 24px; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">Enviar</button>
                 </div>
             </div>
         </div>
@@ -506,6 +524,8 @@
     let joinedRooms = new Map();
     let currentPickerMessageId = null;
     let messageReactions = new Map(); // messageId -> reactions
+    let typingUsers = new Set(); // usuários que estão digitando
+    let typingTimeout = null;
 
     function connect() {
         const username = document.getElementById('usernameInput').value.trim();
@@ -573,6 +593,13 @@
             }
         });
 
+        // NOVO: Typing indicator
+        socket.on('room:typing', (data) => {
+            if (currentRoom === data.roomId) {
+                handleRemoteTyping(data.username, data.isTyping);
+            }
+        });
+
         socket.on('validation:error', (data) => {
             alert('Erro de validação: ' + data.errors.map(e => e.message).join(', '));
         });
@@ -620,6 +647,8 @@
 
     function switchToRoom(roomId) {
         currentRoom = roomId;
+        typingUsers.clear(); // Limpar typing indicator
+        updateTypingIndicator();
 
         document.getElementById('selectRoomMessage').style.display = 'none';
         document.getElementById('activeChat').style.display = 'flex';
@@ -704,6 +733,15 @@
             timestamp: new Date().toISOString()
         });
 
+        // Parar typing indicator ao enviar
+        if (typingTimeout) {
+            clearTimeout(typingTimeout);
+        }
+        socket.emit('room:typing', {
+            roomId: currentRoom,
+            isTyping: false
+        });
+
         input.value = '';
         input.focus();
     }
@@ -711,6 +749,56 @@
     function handleKeyPress(event) {
         if (event.key === 'Enter') {
             sendMessage();
+        }
+    }
+
+    function handleTyping() {
+        if (!currentRoom) return;
+
+        // Enviar que está digitando
+        socket.emit('room:typing', {
+            roomId: currentRoom,
+            isTyping: true
+        });
+
+        // Limpar timeout anterior
+        if (typingTimeout) {
+            clearTimeout(typingTimeout);
+        }
+
+        // Após 2 segundos sem digitar, enviar que parou
+        typingTimeout = setTimeout(() => {
+            socket.emit('room:typing', {
+                roomId: currentRoom,
+                isTyping: false
+            });
+        }, 2000);
+    }
+
+    function handleRemoteTyping(username, isTyping) {
+        if (isTyping) {
+            typingUsers.add(username);
+        } else {
+            typingUsers.delete(username);
+        }
+        updateTypingIndicator();
+    }
+
+    function updateTypingIndicator() {
+        const indicator = document.getElementById('typingIndicator');
+
+        if (typingUsers.size === 0) {
+            indicator.textContent = '';
+            return;
+        }
+
+        const users = Array.from(typingUsers);
+        if (users.length === 1) {
+            indicator.textContent = `${users[0]} está digitando...`;
+        } else if (users.length === 2) {
+            indicator.textContent = `${users[0]} e ${users[1]} estão digitando...`;
+        } else {
+            indicator.textContent = `${users.length} pessoas estão digitando...`;
         }
     }
 

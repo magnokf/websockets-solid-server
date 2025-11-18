@@ -32,12 +32,19 @@ const PingSchema = z.object({
     timestamp: z.iso.datetime()
 });
 
+const TypingSchema = z.object({
+    roomId: z.string(),
+    isTyping: z.boolean()
+});
+
 // Tipos TypeScript
 type ChatMessage = z.infer<typeof ChatMessageSchema>;
 type MessageReaction = z.infer<typeof MessageReactionSchema>;
 type JoinRoom = z.infer<typeof JoinRoomSchema>;
 type LeaveRoom = z.infer<typeof LeaveRoomSchema>;
 type PingMessage = z.infer<typeof PingSchema>;
+type TypingIndicator = z.infer<typeof TypingSchema>;
+
 
 // ============================================
 // 2. TYPES E INTERFACES DE DOMÍNIO
@@ -101,7 +108,6 @@ interface IRoomManager {
     isUserInRoom(roomId: string, socketId: string): boolean;
 }
 
-// Nova interface para gerenciar reações
 interface IReactionManager {
     addReaction(messageId: string, reaction: Reaction): void;
     removeReaction(messageId: string, userId: string, emoji: string): void;
@@ -116,7 +122,7 @@ interface IMessageHandler {
 interface IWebSocketServer {
     start(port: number): void;
     broadcast(eventName: string, data: any): void;
-    broadcastToRoom(roomId: string, eventName: string, data: any): void;
+    broadcastToRoom(roomId: string, eventName: string, data: any, excludeSocketId?: string): void;
     emitToUser(userId: string, eventName: string, data: any): void;
 }
 
@@ -251,7 +257,7 @@ class RoomManager implements IRoomManager {
     }
 }
 
-// NOVA CLASSE: Gerenciador de Reações (SRP)
+
 class ReactionManager implements IReactionManager {
     // messageId -> emoji -> [Reaction]
     private reactions: Map<string, Map<string, Reaction[]>> = new Map();
@@ -478,7 +484,6 @@ class ChatMessageHandler extends BaseMessageHandler {
     }
 }
 
-// NOVO HANDLER: Reações (OCP - adicionar sem modificar código existente!)
 class MessageReactionHandler extends BaseMessageHandler {
     constructor(
         logger: ILogger,
@@ -546,6 +551,42 @@ class MessageReactionHandler extends BaseMessageHandler {
             reactions: reactionsFormatted
         });
     }
+}
+
+class TypingIndicatorHandler extends BaseMessageHandler {
+    constructor(
+        logger: ILogger,
+        private roomManager: IRoomManager,
+        private server: IWebSocketServer
+    ) {
+        super(logger, TypingSchema);
+    }
+
+    protected async execute(
+        socketId: string,
+        _eventName: string,
+        data: TypingIndicator
+    ): Promise<void> {
+        if (!this.roomManager.isUserInRoom(data.roomId, socketId)) {
+            throw new Error('User not in room');
+        }
+
+        const users = this.roomManager.getRoomUsers(data.roomId);
+        const typer = users.find(u => u.socketId === socketId);
+
+        if (!typer) {
+            throw new Error('Typer not found');
+        }
+
+        // Broadcast para todos na sala, exceto o próprio remetente
+        this.server.broadcastToRoom(data.roomId, 'room:typing', {
+            roomId: data.roomId,
+            userId: typer.userId,
+            username: typer.username,
+            isTyping: data.isTyping
+        }, socketId);
+    }
+
 }
 
 class PingMessageHandler extends BaseMessageHandler {
@@ -697,10 +738,12 @@ class WebSocketServer implements IWebSocketServer {
         this.io?.emit(eventName, data);
     }
 
-    broadcastToRoom(roomId: string, eventName: string, data: any): void {
+    broadcastToRoom(roomId: string, eventName: string, data: any, excludeSocketId?: string): void {
         const users = this.roomManager.getRoomUsers(roomId);
         users.forEach(user => {
-            this.io?.to(user.socketId).emit(eventName, data);
+            if (user.socketId !== excludeSocketId) {
+                this.io?.to(user.socketId).emit(eventName, data);
+            }
         });
     }
 
@@ -739,6 +782,8 @@ class Application {
         messageRouter.registerHandler('chat:message', new ChatMessageHandler(logger, roomManager, server));
         messageRouter.registerHandler('message:reaction', new MessageReactionHandler(logger, roomManager, reactionManager, server)); // NOVO handler
         messageRouter.registerHandler('ping', new PingMessageHandler(logger));
+        messageRouter.registerHandler('room:typing', new TypingIndicatorHandler(logger, roomManager, server));
+
 
         this.server = server;
     }
