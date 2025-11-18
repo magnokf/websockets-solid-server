@@ -254,6 +254,10 @@
             word-wrap: break-word;
         }
 
+        .message.user.other .message-text {
+            background: #e6ffed;
+        }
+
         /* REAÇÕES */
         .reactions-container {
             display: flex;
@@ -581,7 +585,13 @@
         socket.on('chat:message', (data) => {
             if (currentRoom === data.roomId) {
                 messageReactions.set(data.messageId, data.reactions || {});
-                addUserMessage(data.messageId, data.sender.username, data.message, data.timestamp);
+                addUserMessage(
+                    data.messageId,
+                    data.sender.userId,
+                    data.sender.username,
+                    data.message,
+                    data.timestamp
+                );
             }
         });
 
@@ -810,10 +820,11 @@
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
 
-    function addUserMessage(messageId, username, text, timestamp) {
+    function addUserMessage(messageId, senderId, username, text, timestamp) {
         const messagesDiv = document.getElementById('messages');
         const messageEl = document.createElement('div');
-        messageEl.className = 'message user';
+        const isOwnMessage = senderId === currentUserId;
+        messageEl.className = `message user ${isOwnMessage ? 'own' : 'other'}`;
         messageEl.dataset.messageId = messageId;
 
         const time = new Date(timestamp).toLocaleTimeString('pt-BR', {
